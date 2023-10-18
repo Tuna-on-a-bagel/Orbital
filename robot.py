@@ -1,6 +1,6 @@
 import numpy as np
 import json
-
+import copy
 
 class robot():
 
@@ -8,8 +8,8 @@ class robot():
         
         file = open('/home/tuna/Documents/driving/control/Comet/configFiles/orbital_0.0.json', 'r')
         config = json.load(file)
-        
-        self.curPos = np.array([[0.], [0.], [1.]]) #x, y, z, null
+        h = config['support']['height']     #z
+        self.curPos = np.array([[0.], [0.], [0.2], [1.]]) #x, y, z, null
         self.curGim = np.array([[0.], [0.]])      #yaw, pitch
 
         self.mass = config['robot']['mass']
@@ -32,12 +32,31 @@ class robot():
              self.robotRadius*np.sin(3*np.pi/4),
              self.robotRadius*np.sin(5*np.pi/4),
              self.robotRadius*np.sin(7*np.pi/4)]
+        
+        z = [0., 0., 0., 0.]
+        #print(z[0])
 
-        #built frame tranformations
-        self.robot2Outlet1 = np.array([[1, 0, x[0]],[0, 1, y[0]],[0, 0, 1]])      #1st quadrant
-        self.robot2Outlet2 = np.array([[1, 0, x[1]],[0, 1, y[1]],[0, 0, 1]])      #2nd quadrant
-        self.robot2Outlet3 = np.array([[1, 0, x[2]],[0, 1, y[2]],[0, 0, 1]])      #3rd quadrant
-        self.robot2Outlet4 = np.array([[1, 0, x[3]],[0, 1, y[3]],[0, 0, 1]])      #4th quadrant
+        #build frame tranformations
+        #1st quadrant
+        self.robot2Outlet1 = np.array([[1, 0, 0, x[0]],
+                                       [0, 1, 0, y[0]],
+                                       [0, 0, 1, z[0]],
+                                       [0, 0, 0, 1]])      
+        #2nd quadrant
+        self.robot2Outlet2 = np.array([[1, 0, 0, x[1]],
+                                       [0, 1, 0, y[1]],
+                                       [0, 0, 1, z[1]],
+                                       [0, 0, 0, 1]])      
+        #3rd quadrant
+        self.robot2Outlet3 = np.array([[1, 0, 0, x[2]],
+                                       [0, 1, 0, y[2]],
+                                       [0, 0, 1, z[2]],
+                                       [0, 0, 0, 1]])      
+        #4th quadrant
+        self.robot2Outlet4 = np.array([[1, 0, 0, x[3]],
+                                       [0, 1, 0, y[3]],
+                                       [0, 0, 1, z[3]],
+                                       [0, 0, 0, 1]])      
 
         l = config['support']['length']     #x
         w = config['support']['width']      #y
@@ -50,10 +69,10 @@ class robot():
         self.posF4 = np.array([[l/2],  [-w/2], [h]])
 
         #x, dx, y, dy, z, dz, ###yaw, dyaw, pitch, dpitch
-        self.state = np.array([0., 0., 0., 0., 0., 0.])
+        self.state = np.array([[0.], [0.], [0.], [0.], [0.], [0.]])
         
         #Tor1, Tor2, Tor3, Tor4 [Nm]
-        self.u = np.array([0., 0., 0., 0.])
+        self.u = np.array([[0.], [0.], [0.], [0.]])
 
         #NOTE: For A and B to be logical, you must calculate the equilibrium torque at the zero
         #       position. Imagine you start from a suspended zero position in the middle of the table
@@ -102,8 +121,12 @@ class robot():
         b = self.thickness           #thickness of the cable
 
         #if no position passed use current position
-        if desPos ==None:          
+        if type(desPos) == type(None):          
             desPos = self.curPos
+            
+            desPos = np.array([self.state[0], self.state[2], self.state[4], [1.]])
+            print('desPos:')
+            print(desPos)
             
         #frame transforms (robot origin table frame to outlet points in table frame)
         T1 = self.robot2Outlet1
@@ -112,10 +135,10 @@ class robot():
         T4 = self.robot2Outlet4
 
         #cableVectors:
-        C1 = self.posF1 - T1@desPos
-        C2 = self.posF2 - T2@desPos
-        C3 = self.posF3 - T3@desPos
-        C4 = self.posF4 - T4@desPos
+        C1 = self.posF1 - (T1@desPos)[0:3]
+        C2 = self.posF2 - (T2@desPos)[0:3]
+        C3 = self.posF3 - (T3@desPos)[0:3]
+        C4 = self.posF4 - (T4@desPos)[0:3]
         
         #lengths of each cable
         L1 = np.linalg.norm(C1)
@@ -158,13 +181,13 @@ class robot():
         
         return motorTransAngles, cableVectors, cableLengths, spoolRadii
     
-    def updateB(self, cableVecs, spoolRadii):
+    def updateB(self, cableVecs, spoolRadii, sim=False):
 
         '''update class obj state array B (time-varying) based on position of robot
                 params: 
                     cableVecs:  (3x4) numpy array columns of which are unit vectors from robot feed outlet to support fixture position
-                    spoolRadii: (4,)  numpy array of radii at which the cable is currently at in the spool'''
-
+                    spoolRadii: (4,)  numpy array of radii at which the cable is currently at in the spool
+                    sim:        Bool  If False, updates class variable B, if True, returns updated B matrix wihtout altering class variable'''
         m = self.mass
         dr = self.driveRatio
 
@@ -186,16 +209,27 @@ class robot():
 
         #update B
         #self.B = seperate@cableVecs@torqueUpdate
-        #NOTE: The only reason I'm doing this is to potentially avoid issues with autograd later on
+
+        #NOTE: The only reason I'm updating B this way insteal of matmulling is to potentially avoid issues with autograd later on
         # *I think* if I reassign a new np array at each itter, it will mess up auto diffing, but if I
         # just update the indicies then I think this will work? must check if this is an actual problem
-        self.B[1, :] = cableVecs[0, :]*spoolRadii
-        self.B[3, :] = cableVecs[1, :]*spoolRadii
-        self.B[5, :] = cableVecs[2, :]*spoolRadii
+        print(f'cableVec: {cableVecs.shape}')
+        print(f'spoolRad: {spoolRadii.shape}')
+        if sim:
+            B = copy.copy(self.B)
+            B[1, :] = cableVecs[0, :]*spoolRadii
+            B[3, :] = cableVecs[1, :]*spoolRadii
+            B[5, :] = cableVecs[2, :]*spoolRadii
+            return B
+        
+        else:
+            self.B[1, :] = cableVecs[0, :]*spoolRadii
+            self.B[3, :] = cableVecs[1, :]*spoolRadii
+            self.B[5, :] = cableVecs[2, :]*spoolRadii
 
     def odeStep(self, A, B, x, u, dt=0.01):
 
-        xdot = A*dt@x + B*dt@u
+        xdot = A*dt@x + B*dt@u - np.array([[0.], [0.], [0.], [0.], [0.], [9.81]])*dt
         x_new = x + xdot
         return x_new
     
@@ -204,8 +238,10 @@ class robot():
         '''simulate forward
         
             PARAMS:
-                A: 6x6 numpy array
-                B: '''
+                A: 6x6  numpy array
+                B: 6x4  numpy array
+                x: 6x1  numpy array
+                u: 4x1xN numpy array'''
 
         x_hist = []
         x_new = self.odeStep(A, B, x, u[i], dt=dt)

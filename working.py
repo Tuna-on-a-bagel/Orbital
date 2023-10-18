@@ -1,27 +1,97 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import robot
+from hermite2D import hermite2D
 import pygame
 from pygame import locals
 import json
-import spline
-
+import copy
 
 def main(world, robot, traj):
 
     world.display.fill((255, 255, 255))
+    #trackTrajNoDynamics(world, robot, traj)
+    N = 1000
+    u = np.array([[35], [35], [35], [35]])
+    B = copy.copy(robot.B)
+    A = copy.copy(robot.A)
+    x = copy.copy(robot.state)
+    print(x)
+
+
+    
+    ''''''
+    for i in range(N):
+        print(i)
+        robot.state = robot.odeStep(robot.A, robot.B, robot.state, u)
+        
+        #print(f'x: {robot.state}')
+        posNew = np.array([x[0], x[2], x[4]])
+        #print(f'posNew: {posNew}')
+        _, cableVecs, cableLengths, spoolRadii = robot.inverseK()
+        robot.updateB(cableVecs, spoolRadii)
+
+        robot.curPos[0] = robot.state[0]
+        robot.curPos[1] = robot.state[2]
+        robot.curPos[2] = robot.state[4]
+
+        world.display.fill((255, 255, 255))
+        #world.drawTraj(traj, i)
+        world.drawRobot(robot)
+        world.drawSupport(robot)
+        world.drawCables(robot, cableVecs, cableLengths)
+        
+        pygame.display.update()
+        #uncomment line below to save images to make into a gif later on
+        #pygame.image.save(world.display, f"/home/tuna/Documents/driving/control/Comet/gifs/10Oct/xy_{i}.png")
+        world.fpsClock.tick(30)
+        # check for quit
+        for event in pygame.event.get():
+            if event.type == pygame.locals.QUIT:
+                pygame.quit() 
+                break
+
+
+def trackTrajNoDynamics(world, robot, traj):
+
     for i, knot in enumerate(traj):
         
-        #update robot origin position
+        #update robot origin po sition
         robot.curPos[0, 0] = knot[0]
         robot.curPos[1, 0] = knot[1]
         _, cableVecs, cableLengths, spoolRadii = robot.inverseK()
 
-        #print(cableVecs)
-
-        #update robots state eq. B matrix
         robot.updateB(cableVecs, spoolRadii)
+        print(robot.B)
+        
+        #draw everything
+        world.display.fill((255, 255, 255))
+        world.drawTraj(traj, i)
+        world.drawRobot(robot)
+        world.drawSupport(robot)
+        world.drawCables(robot, cableVecs, cableLengths)
+        
+        pygame.display.update()
+        #uncomment line below to save images to make into a gif later on
+        #pygame.image.save(world.display, f"/home/tuna/Documents/driving/control/Comet/gifs/10Oct/xy_{i}.png")
+        world.fpsClock.tick(30)
+        # check for quit
+        for event in pygame.event.get():
+            if event.type == pygame.locals.QUIT:
+                pygame.quit() 
+                break
 
+def trackTraj(world, robot, traj):
+
+    for i, knot in enumerate(traj):
+        
+        #update robot origin po sition
+        robot.curPos[0, 0] = knot[0]
+        robot.curPos[1, 0] = knot[1]
+        _, cableVecs, cableLengths, spoolRadii = robot.inverseK()
+
+        robot.updateB(cableVecs, spoolRadii)
+        print(cableVecs)
         #draw everything
         world.display.fill((255, 255, 255))
         world.drawTraj(traj, i)
@@ -59,7 +129,7 @@ class World():
         #draw robot body
         pygame.draw.circle(surface=self.display, 
                            color=(150, 0, 150), 
-                           center=(robot.curPos[0, 0]*self.scaleFactor+world.width/2, robot.curPos[1, 0]*self.scaleFactor+world.height/2),
+                           center=(robot.state[0, 0]*self.scaleFactor+world.width/2, robot.state[2, 0]*self.scaleFactor+world.height/2),
                            radius=robot.robotRadius*self.scaleFactor,
                            width=5)
 
@@ -155,7 +225,6 @@ if __name__ == "__main__":
     alphas = [0.5, 0.9, 0.1, 0.5]
     N = 150
 
-    #traj = hermite2D(knots, alphas, N)
-    traj = spline.Hermite._2D(knots, alphas, N)
+    traj = hermite2D(knots, alphas, N)
 
     main(world, robot, traj)
