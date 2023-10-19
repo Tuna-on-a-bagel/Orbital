@@ -27,7 +27,10 @@ if __name__ == '__main__':
             'pulleyID':         0.02,
             'drivePitchRadius': 0.126,      #m
             'pulleyPitchRadius':0.5,
-            'cableThickness':   0.016
+            'cableThickness':   0.016,
+            'zeta_x':           0.3,        #SYSTEM damping, this should be calulated through experiments
+            'zeta_y':           0.3,        #NOTE: this is the damping that will be inherent to the system,
+            'zeta_z':           0.3,        #      these values will be used to solve for critically damped motion
             },
         })
 

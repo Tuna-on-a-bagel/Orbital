@@ -9,7 +9,7 @@ class robot():
         file = open('/home/tuna/Documents/driving/control/Comet/configFiles/orbital_0.0.json', 'r')
         config = json.load(file)
         h = config['support']['height']     #z
-        self.curPos = np.array([[0.], [0.], [0.2], [1.]]) #x, y, z, null
+        self.curPos = np.array([[0.], [0.], [h], [1.]]) #x, y, z, null
         self.curGim = np.array([[0.], [0.]])      #yaw, pitch
 
         self.mass = config['robot']['mass']
@@ -21,6 +21,10 @@ class robot():
 
         self.pulleyID = config['robot']['pulleyID']
         self.thickness = config['robot']['cableThickness']
+
+        self.zeta_x = bx = config['robot']['zeta_x'] #damping coeffs
+        self.zeta_y = by = config['robot']['zeta_y']
+        self.zeta_z = bz = config['robot']['zeta_z']
 
         #frame conversion robot origin to cable feed outlets
         x = [self.robotRadius*np.cos(np.pi/4),
@@ -79,12 +83,12 @@ class robot():
         #       you must calculate the torque required for equilibrium and add that as an offset to your 
         #       your decision vector
 
-        self.A = np.array([[0., 1., 0., 0., 0., 0.], 
-                            [0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 1., 0., 0.],
-                            [0., 0., 0., 0., 0., 0.],
-                            [0., 0., 0., 0., 0., 1.],
-                            [0., 0., 0., 0., 0., 0.]])
+        self.A = np.array([[0.,    1.,   0.,   0.,   0.,  0.], 
+                            [0., -1/bx,  0.,   0.,   0.,  0.],
+                            [0.,   0.,   0.,   1.,   0.,  0.],
+                            [0.,   0.,   0., -1/by,  0.,  0.],
+                            [0.,   0.,   0.,   0.,   0.,  1.],
+                            [0.,   0.,   0.,   0.,   0., -1/bz]])
         
         self.B = np.array([[0., 0., 0., 0.], 
                             [0., 0., 0., 0.],
@@ -125,8 +129,8 @@ class robot():
             desPos = self.curPos
             
             desPos = np.array([self.state[0], self.state[2], self.state[4], [1.]])
-            print('desPos:')
-            print(desPos)
+            #print('desPos:')
+            #print(desPos)
             
         #frame transforms (robot origin table frame to outlet points in table frame)
         T1 = self.robot2Outlet1
@@ -210,11 +214,11 @@ class robot():
         #update B
         #self.B = seperate@cableVecs@torqueUpdate
 
-        #NOTE: The only reason I'm updating B this way insteal of matmulling is to potentially avoid issues with autograd later on
+        #NOTE: The only reason I'm updating B this way instead of matmulling is to potentially avoid issues with autograd later on
         # *I think* if I reassign a new np array at each itter, it will mess up auto diffing, but if I
         # just update the indicies then I think this will work? must check if this is an actual problem
-        print(f'cableVec: {cableVecs.shape}')
-        print(f'spoolRad: {spoolRadii.shape}')
+        #print(f'cableVec: {cableVecs.shape}')
+        #print(f'spoolRad: {spoolRadii.shape}')
         if sim:
             B = copy.copy(self.B)
             B[1, :] = cableVecs[0, :]*spoolRadii
@@ -227,31 +231,68 @@ class robot():
             self.B[3, :] = cableVecs[1, :]*spoolRadii
             self.B[5, :] = cableVecs[2, :]*spoolRadii
 
-    def odeStep(self, A, B, x, u, dt=0.01):
 
-        xdot = A*dt@x + B*dt@u - np.array([[0.], [0.], [0.], [0.], [0.], [9.81]])*dt
-        x_new = x + xdot
-        return x_new
+    def dx(self, A, B, x, u, dt=0.001):
+        xdot = A@x + B@u  - np.array([[0.], [0.], [0.], [0.], [0.], [self.mass*9.81]])
+        return xdot*dt
+
+    def odeStep(self, A, B, x, u, dt=0.01, integrator='Euler'):
+        
+        if integrator == 'Euler':
+            
+            xdot = self.dx(A, B, x, u, dt) 
+            x_next = x + xdot
+
+        elif integrator == 'RK4':
+            
+            #xdot 1st order
+            k1 = self.dx(A, B, x, u, dt) 
+            
+            x_midpoint1 = x + (k1)/2
+            #xdot 2nd order
+            k2 = self.dx(A, B, x_midpoint1, u, dt) 
+
+            x_midpoint2 = x + (k2)/2
+            #xdot 3rd order
+            k3 = self.dx(A, B, x_midpoint2, u, dt) 
+           
+            x_end = x + k3 
+            #xdot 4th order
+            k4 = self.dx(A, B, x_end, u, dt) 
+
+            #averaging derivatives
+            x_next = x + (k1 + 2*k2 + 2*k3 + k4)/6
+            
+        return x_next
     
-    def sim(self, A, B, x, u, dt=0.01, N=200):
+    def sim(self, A, B, x0, u, dt=0.001, N=200, integrator='RK4'):
 
-        '''simulate forward
+        '''simulate forward system dynamics with control input
         
             PARAMS:
-                A: 6x6  numpy array
-                B: 6x4  numpy array
-                x: 6x1  numpy array
-                u: 4x1xN numpy array'''
+                A:  6x6  numpy array
+                B:  6x4  numpy array
+                x0: 6x1  numpy array state vector initial conditions
+                u:  4x1xN numpy array, control vector (N vectors)'''
 
-        x_hist = []
-        x_new = self.odeStep(A, B, x, u[i], dt=dt)
+        x_hist = x0 #storing output for plotting
+        x = x0      #initialize 
+
         for i in range(1, N):
-            x_new = self.odeStep(A, B, x, u[i], dt=dt)
-            x_hist.append(x_new)
-            B = self.updateB()
-            pass
+            #extract current time step control vector
+            u_cur = np.reshape(u[:, i], (4, 1))
+            
+            #compute next state
+            x = self.odeStep(A, B, x, u_cur, dt=dt, integrator=integrator)
+            
+            #append for plotting
+            x_hist = np.append(x_hist, x, axis=1)
+           
+            #copmute kinematics and update B mat
+            _, cableVecs, _, spoolRadii = self.inverseK(desPos=np.array([[x[0, 0]], [x[2, 0]], [x[4, 0]], [1]]))
+            B = self.updateB(cableVecs, spoolRadii, sim=True)
 
-        return
+        return x_hist
 
 
     def staticForces(self):

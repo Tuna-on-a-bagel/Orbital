@@ -7,34 +7,43 @@ from pygame import locals
 import json
 import copy
 
+
+
 def main(world, robot, traj):
 
     world.display.fill((255, 255, 255))
     #trackTrajNoDynamics(world, robot, traj)
-    N = 1000
-    u = np.array([[35], [35], [35], [35]])
-    B = copy.copy(robot.B)
-    A = copy.copy(robot.A)
-    x = copy.copy(robot.state)
-    print(x)
-
-
+    N = 2000
     
-    ''''''
+    A = robot.A
+    B = robot.B
+    
+    #step input
+    u = np.ones((4, N))*700
+    x = robot.state
+
+    #random IC velocities
+    x[1] = 1.5      #dx
+    x[3] = -2.2     #dy
+
+    dt = 0.001
+    t = np.linspace(0, N*dt, N)
+    
+    #compute simulation
+    stateHist = robot.sim(A, B, x, u, N=N)
+
     for i in range(N):
-        print(i)
-        robot.state = robot.odeStep(robot.A, robot.B, robot.state, u)
-        
-        #print(f'x: {robot.state}')
-        posNew = np.array([x[0], x[2], x[4]])
-        #print(f'posNew: {posNew}')
+
+        robot.state = np.reshape(stateHist[:, i], (6, 1))
+        #print(f'robot: {robot.state}')
         _, cableVecs, cableLengths, spoolRadii = robot.inverseK()
         robot.updateB(cableVecs, spoolRadii)
 
+        #only updating this for drawCables()
         robot.curPos[0] = robot.state[0]
         robot.curPos[1] = robot.state[2]
         robot.curPos[2] = robot.state[4]
-
+        
         world.display.fill((255, 255, 255))
         #world.drawTraj(traj, i)
         world.drawRobot(robot)
@@ -44,12 +53,24 @@ def main(world, robot, traj):
         pygame.display.update()
         #uncomment line below to save images to make into a gif later on
         #pygame.image.save(world.display, f"/home/tuna/Documents/driving/control/Comet/gifs/10Oct/xy_{i}.png")
-        world.fpsClock.tick(30)
+        world.fpsClock.tick(N/8)
         # check for quit
         for event in pygame.event.get():
             if event.type == pygame.locals.QUIT:
                 pygame.quit() 
                 break
+    
+    fig, ax = plt.subplots(3)
+    ax[0].plot(t, stateHist[0, :])
+    ax[1].plot(t, stateHist[2, :])
+    ax[2].plot(t, stateHist[4, :])
+    ax[0].set(ylabel='x [m]')
+    ax[1].set(ylabel='y [m]')
+    ax[2].set(ylabel='z [m]')
+    ax[2].set(xlabel='time [s]')
+    plt.show()
+
+    
 
 
 def trackTrajNoDynamics(world, robot, traj):

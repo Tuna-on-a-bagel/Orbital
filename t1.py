@@ -43,3 +43,10 @@ print(z)
 z = [0, 0, 0, 1]
 
 print(f'z: {z[0]}')
+
+print(x*3)
+
+print('=======')
+
+u = np.ones((4, 10))
+print(u[:, 0])
