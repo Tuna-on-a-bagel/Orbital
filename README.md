@@ -15,15 +15,7 @@ robot.inverseK() returns:
 ### Model:
   State Space model is as follows:
   $$\dot{x} = Ax + Bu$$
-  $$Q = \begin{bmatrix}
-  x\\  
-  \dot{x}\\
-  y\\
-  \dot{y}\\
-  z\\
-  \dot{z}\\
-  \end{bmatrix}
-  $$
+  $$Q = \begin{bmatrix} x\\ \dot{x}\\ y\\ \dot{y}\\ z\\ \dot{z}\\ \end{bmatrix}$$
     
 This model is non-linear time-varying in the B matrix. To handle this, attempting to implement iLQR. To respect constraints attempting to wrap in augmented lagrangian.
 
