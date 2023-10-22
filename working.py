@@ -19,7 +19,7 @@ def main(world, robot, traj):
     B = robot.B
     
     #step input
-    u = np.ones((4, N))*700
+    u = np.ones((4, N))*0.20
     x = robot.state
 
     #random IC velocities
@@ -228,7 +228,7 @@ class World():
 
 if __name__ == "__main__":
 
-    robot = robot.robot()
+    robo = robot.Robot()
     world = World()
 
     knots = [[-0.5, -0.5], 
@@ -248,4 +248,4 @@ if __name__ == "__main__":
 
     traj = hermite2D(knots, alphas, N)
 
-    main(world, robot, traj)
+    main(world, robo, traj)

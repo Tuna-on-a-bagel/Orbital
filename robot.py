@@ -2,7 +2,7 @@ import numpy as np
 import json
 import copy
 
-class robot():
+class Robot():
 
     def __init__(self):
         
@@ -96,6 +96,9 @@ class robot():
                             [0., 0., 0., 0.], 
                             [0., 0., 0., 0.],
                             [0., 0., 0., 0.]])
+        
+        #NOTE: maybe use this as a way to switch between modes of motion (wait for command, track hands, follow hands etc)
+        self.controlMode = None
 
     def forwardK(self):
         return
@@ -221,22 +224,32 @@ class robot():
         #print(f'spoolRad: {spoolRadii.shape}')
         if sim:
             B = copy.copy(self.B)
-            B[1, :] = cableVecs[0, :]*spoolRadii
-            B[3, :] = cableVecs[1, :]*spoolRadii
-            B[5, :] = cableVecs[2, :]*spoolRadii
+            B[1, :] = cableVecs[0, :]*1/spoolRadii
+            B[3, :] = cableVecs[1, :]*1/spoolRadii
+            B[5, :] = cableVecs[2, :]*1/spoolRadii
             return B
         
         else:
-            self.B[1, :] = cableVecs[0, :]*spoolRadii
-            self.B[3, :] = cableVecs[1, :]*spoolRadii
-            self.B[5, :] = cableVecs[2, :]*spoolRadii
+            self.B[1, :] = cableVecs[0, :]*1/spoolRadii
+            self.B[3, :] = cableVecs[1, :]*1/spoolRadii
+            self.B[5, :] = cableVecs[2, :]*1/spoolRadii
 
 
     def dx(self, A, B, x, u, dt=0.001):
         xdot = A@x + B@u  - np.array([[0.], [0.], [0.], [0.], [0.], [self.mass*9.81]])
         return xdot*dt
 
-    def odeStep(self, A, B, x, u, dt=0.01, integrator='Euler'):
+    def odeStep(self, A, B, x, u, dt=0.001, integrator='Euler'):
+
+        '''Solves an ode for the following time step
+        
+            PARAMS:
+                A:              
+                B:              
+                x:              
+                u:              
+                dt:             step size
+                integrator:     method of integrating solution ("Euler", "RK4", "Hermite-Simpson")'''
         
         if integrator == 'Euler':
             
@@ -262,6 +275,10 @@ class robot():
 
             #averaging derivatives
             x_next = x + (k1 + 2*k2 + 2*k3 + k4)/6
+
+        elif integrator == 'Hermite-Simpson':
+            #TODO: [ ] implement Hermite-simposon integration
+            pass
             
         return x_next
     
@@ -270,10 +287,10 @@ class robot():
         '''simulate forward system dynamics with control input
         
             PARAMS:
-                A:  6x6  numpy array
-                B:  6x4  numpy array
-                x0: 6x1  numpy array state vector initial conditions
-                u:  4x1xN numpy array, control vector (N vectors)'''
+                A:  6xn   numpy array mapping state terms to derivative
+                B:  nxm   numpy array mapping inputs to outputs
+                x0: nx1   numpy array state vector initial conditions
+                u:  mx1xN numpy array, control vector (N vectors)'''
 
         x_hist = x0 #storing output for plotting
         x = x0      #initialize 
@@ -302,4 +319,4 @@ class robot():
         return
     
 if __name__ == "__main__":
-    r = robot()
+    r = Robot()
