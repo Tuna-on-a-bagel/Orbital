@@ -1,5 +1,5 @@
 # Orbital
-ESMD Capstone project
+Electro-Mechanical Systems Design Capstone project
 
 ## Frame assignment + transforms:
 
