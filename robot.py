@@ -9,36 +9,43 @@ class Robot():
         file = open('/home/tuna/Documents/driving/control/Comet/configFiles/orbital_0.0.json', 'r')
         config = json.load(file)
         h = config['support']['height']     #z
-        self.curPos = np.array([[0.], [0.], [h], [1.]]) #x, y, z, null
+        self.curPos = np.array([[0.], [0.], [h/2], [1.]]) #x, y, z, null
         self.curGim = np.array([[0.], [0.]])      #yaw, pitch
 
-        self.mass = config['robot']['mass']
-        self.robotRadius = config['robot']['radius']
+        #robot parameters
         self.pulleyRadius = config['robot']['pulleyPitchRadius']
         self.driveRadius = config['robot']['drivePitchRadius']
-
         self.driveRatio = self.pulleyRadius/self.driveRadius
-
         self.pulleyID = config['robot']['pulleyID']
         self.thickness = config['robot']['cableThickness']
 
-        self.zeta_x = bx = config['robot']['zeta_x'] #damping coeffs
-        self.zeta_y = by = config['robot']['zeta_y']
-        self.zeta_z = bz = config['robot']['zeta_z']
+        self.mass = m = config['robot']['mass']
+        self.robotRadius = config['robot']['radius']
+
+        #damping coeffs
+        self.damp_x = bx = config['robot']['dampCoeff_x'] 
+        self.damp_y = by = config['robot']['dampCoeff_y']
+        self.damp_z = bz = config['robot']['dampCoeff_z']
+        self.damp_theta = bth = config['robot']['dampCoeff_theta']
+        self.damp_phi = bph = config['robot']['dampCoeff_phi']
+        self.damp_psi = bps = config['robot']['dampCoeff_psi']
+
+        #moment of inertia
+        self.Ixx = Ixx = config['robot']['Ixx']
+        self.Iyy = Iyy = config['robot']['Iyy']
+        self.Izz = Izz = config['robot']['Izz']
 
         #frame conversion robot origin to cable feed outlets
         x = [self.robotRadius*np.cos(np.pi/4),
              self.robotRadius*np.cos(3*np.pi/4),
              self.robotRadius*np.cos(5*np.pi/4),
              self.robotRadius*np.cos(7*np.pi/4),]
-        
         y = [self.robotRadius*np.sin(np.pi/4),
              self.robotRadius*np.sin(3*np.pi/4),
              self.robotRadius*np.sin(5*np.pi/4),
              self.robotRadius*np.sin(7*np.pi/4)]
         
         z = [0., 0., 0., 0.]
-        #print(z[0])
 
         #build frame tranformations
         #1st quadrant
@@ -72,25 +79,54 @@ class Robot():
         self.posF3 = np.array([[-l/2], [-w/2], [h]])
         self.posF4 = np.array([[l/2],  [-w/2], [h]])
 
-        #x, dx, y, dy, z, dz, ###yaw, dyaw, pitch, dpitch
-        self.state = np.array([[0.], [0.], [0.], [0.], [0.], [0.]])
+        #NOTE: angle states are of robot body, NOT CAMERA GIMBAL
+        self.state = np.array([[0.], #x
+                               [0.], #dx
+                               [0.], #y
+                               [0.], #dy
+                               [0.], #z
+                               [0.], #dz
+                               [0.], #theta (pitch: about x)
+                               [0.], #dtheta
+                               [0.], #phi   (roll: about y) 
+                               [0.], #dphi
+                               [0.], #psi   (yaw: about z)
+                               [0.]])#dpsi
         
-        #Tor1, Tor2, Tor3, Tor4 [Nm]
-        self.u = np.array([[0.], [0.], [0.], [0.]])
+        #Motor Torques [Nm]
+        self.u = np.array([[0.], #Tor1
+                           [0.], #Tor2
+                           [0.], #Tor3
+                           [0.]])#Tor4
 
+        ## STATE MODEL ###
         #NOTE: For A and B to be logical, you must calculate the equilibrium torque at the zero
         #       position. Imagine you start from a suspended zero position in the middle of the table
         #       you must calculate the torque required for equilibrium and add that as an offset to your 
         #       your decision vector
 
-        self.A = np.array([[0.,    1.,   0.,   0.,   0.,  0.], 
-                            [0., -1/bx,  0.,   0.,   0.,  0.],
-                            [0.,   0.,   0.,   1.,   0.,  0.],
-                            [0.,   0.,   0., -1/by,  0.,  0.],
-                            [0.,   0.,   0.,   0.,   0.,  1.],
-                            [0.,   0.,   0.,   0.,   0., -1/bz]])
+        #A: 12x12
+        self.A = np.array([[0.,    1.,   0.,   0.,   0.,   0.,  0.,    0.,    0.,    0.,    0.,   0.], 
+                            [0., -bx/m,  0.,   0.,   0.,   0.,  0.,    0.,    0.,    0.,    0.,   0.],
+                            [0.,   0.,   0.,   1.,   0.,   0.,  0.,    0.,    0.,    0.,    0.,   0.],
+                            [0.,   0.,   0., -by/m,  0.,   0.,  0.,    0.,    0.,    0.,    0.,   0.],
+                            [0.,   0.,   0.,   0.,   0.,   1.,  0.,    0.,    0.,    0.,    0.,   0.],
+                            [0.,   0.,   0.,   0.,   0., -bz/m, 0.,    0.,    0.,    0.,    0.,   0.],
+                            [0.,   0.,   0.,   0.,   0.,   0.,  0.,    1.,    0.,    0.,    0.,   0.], 
+                            [0.,   0.,   0.,   0.,   0.,   0.,  0., -bth/Ixx, 0.,    0.,    0.,   0.],
+                            [0.,   0.,   0.,   0.,   0.,   0.,  0.,    0.,    0.,    1.,    0.,   0.],
+                            [0.,   0.,   0.,   0.,   0.,   0.,  0.,    0.,    0., -bph/Iyy, 0.,   0.],
+                            [0.,   0.,   0.,   0.,   0.,   0.,  0.,    0.,    0.,    0.,    0.,   1.],
+                            [0.,   0.,   0.,   0.,   0.,   0.,  0.,    0.,    0.,    0.,    0., -bps/Izz]])
         
+        #B: 12x4
         self.B = np.array([[0., 0., 0., 0.], 
+                            [0., 0., 0., 0.],
+                            [0., 0., 0., 0.],
+                            [0., 0., 0., 0.], 
+                            [0., 0., 0., 0.],
+                            [0., 0., 0., 0.],
+                            [0., 0., 0., 0.], 
                             [0., 0., 0., 0.],
                             [0., 0., 0., 0.],
                             [0., 0., 0., 0.], 
@@ -129,11 +165,7 @@ class Robot():
 
         #if no position passed use current position
         if type(desPos) == type(None):          
-            desPos = self.curPos
-            
             desPos = np.array([self.state[0], self.state[2], self.state[4], [1.]])
-            #print('desPos:')
-            #print(desPos)
             
         #frame transforms (robot origin table frame to outlet points in table frame)
         T1 = self.robot2Outlet1
@@ -197,6 +229,11 @@ class Robot():
                     sim:        Bool  If False, updates class variable B, if True, returns updated B matrix wihtout altering class variable'''
         m = self.mass
         dr = self.driveRatio
+        r = self.robotRadius
+        rx = ry = np.sqrt(2)/2      #this is derived from r*cos(th) where r is radius of robot, and th is 
+        Ixx = self.Ixx                  # ...angle between x axis and robot cable outlets. Because I have uniform spacing
+        Iyy = self.Iyy                  # ...and the angle is always multiples of pi/4, sqrt(2)/2 always
+        Izz = self.Izz
 
         #trasnform accounting for mass of robot, drive-pulley ratio, and radii of the spool 
         # (time varying)
@@ -220,23 +257,28 @@ class Robot():
         #NOTE: The only reason I'm updating B this way instead of matmulling is to potentially avoid issues with autograd later on
         # *I think* if I reassign a new np array at each itter, it will mess up auto diffing, but if I
         # just update the indicies then I think this will work? must check if this is an actual problem
-        #print(f'cableVec: {cableVecs.shape}')
-        #print(f'spoolRad: {spoolRadii.shape}')
+    
         if sim:
             B = copy.copy(self.B)
-            B[1, :] = cableVecs[0, :]*1/spoolRadii
-            B[3, :] = cableVecs[1, :]*1/spoolRadii
-            B[5, :] = cableVecs[2, :]*1/spoolRadii
+            B[1,:] = (1/m)*dr*cableVecs[0,:]*1/spoolRadii
+            B[3,:] = (1/m)*dr*cableVecs[1,:]*1/spoolRadii
+            B[5,:] = (1/m)*dr*cableVecs[2,:]*1/spoolRadii
+            B[7,:] = (1/Ixx)*dr*cableVecs[0,:]*1/spoolRadii
+            B[9,:] = (1/Iyy)*dr*cableVecs[1,:]*1/spoolRadii
+            B[11,:] = (1/Izz)*dr*cableVecs[2,:]*1/spoolRadii
             return B
         
         else:
-            self.B[1, :] = cableVecs[0, :]*1/spoolRadii
-            self.B[3, :] = cableVecs[1, :]*1/spoolRadii
-            self.B[5, :] = cableVecs[2, :]*1/spoolRadii
+            self.B[1,:] = (1/m)*dr*cableVecs[0,:]*1/spoolRadii
+            self.B[3,:] = (1/m)*dr*cableVecs[1,:]*1/spoolRadii
+            self.B[5,:] = (1/m)*dr*cableVecs[2,:]*1/spoolRadii
+            self.B[7,:] = (1/Ixx)*dr*r*rx*cableVecs[2,:]*1/spoolRadii
+            self.B[9,:] = (1/Iyy)*dr*r*rx*cableVecs[2,:]*1/spoolRadii
+            self.B[11,:] = (1/Izz)*dr*r*rx*(cableVecs[0,:] + cableVecs[1,:])*1/spoolRadii
 
 
     def dx(self, A, B, x, u, dt=0.001):
-        xdot = A@x + B@u  - np.array([[0.], [0.], [0.], [0.], [0.], [self.mass*9.81]])
+        xdot = A@x + B@u  - np.array([[0.], [0.], [0.], [0.], [0.], [self.mass*9.81], [0.], [0.], [0.], [0.], [0.], [0.]])
         return xdot*dt
 
     def odeStep(self, A, B, x, u, dt=0.001, integrator='Euler'):
